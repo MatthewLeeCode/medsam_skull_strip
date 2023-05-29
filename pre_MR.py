@@ -19,6 +19,7 @@ import torch
 from segment_anything import SamPredictor, sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
 import argparse
+import radvis
 
 # set up the parser
 parser = argparse.ArgumentParser(description='preprocess non-CT images')
@@ -42,8 +43,7 @@ args = parser.parse_args()
 prefix = args.modality + '_' + args.anatomy
 names = sorted(os.listdir(args.gt_path))
 names = [name for name in names if not os.path.exists(join(args.npz_path, prefix + '_' + name.split('.nii.gz')[0]+'.npz'))]
-names = [name for name in names if os.path.exists(join(args.nii_path, name.split('.nii.gz')[0] + args.img_name_suffix))]
-
+names = [name for name in names if os.path.exists(join(args.nii_path, name))]
 
 # split names into training and testing
 np.random.seed(args.seed)
@@ -53,10 +53,10 @@ test_names = sorted(names[int(len(names)*0.8):])
 
 # def preprocessing function
 def preprocess_nonct(gt_path, nii_path, gt_name, image_name, label_id, image_size, sam_model, device):
-    gt_sitk = sitk.ReadImage(join(gt_path, gt_name))
-    gt_data = sitk.GetArrayFromImage(gt_sitk)
+    gt_sitk = radvis.load_image(join(gt_path, gt_name))
+    gt_data = gt_sitk.image_data
     gt_data = np.uint8(gt_data==label_id)
-
+    
     if np.sum(gt_data)>1000:
         imgs = []
         gts =  []
@@ -116,7 +116,7 @@ os.makedirs(save_path_ts, exist_ok=True)
 sam_model = sam_model_registry[args.model_type](checkpoint=args.checkpoint).to(args.device)
 
 for name in tqdm(train_names):
-    image_name = name.split('.nii.gz')[0] + args.img_name_suffix
+    image_name = name
     gt_name = name 
     imgs, gts, img_embeddings = preprocess_nonct(args.gt_path, args.nii_path, gt_name, image_name, args.label_id, args.image_size, sam_model, args.device)
     #%% save to npz file
@@ -136,7 +136,7 @@ for name in tqdm(train_names):
 
 # save testing data
 for name in tqdm(test_names):
-    image_name = name.split('.nii.gz')[0] + args.img_name_suffix
+    image_name = name
     gt_name = name 
     imgs, gts = preprocess_nonct(args.gt_path, args.nii_path, gt_name, image_name, args.label_id, args.image_size, sam_model=None, device=args.device)
     #%% save to npz file
