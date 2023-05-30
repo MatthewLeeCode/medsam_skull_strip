@@ -2,18 +2,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: pre_MR.py",
+            "name": "Python: nfbs_preprocess",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/pre_MR.py",
+            "program": "${workspaceFolder}/nfbs_preprocess.py",
             "console": "integratedTerminal",
             "args": [
-                "--nii_path", "C:/Users/matth/Data/nfbs_dataset_preprocessed/images",
-                "--gt_path", "C:/Users/matth/Data/nfbs_dataset_preprocessed/masks",
-                "--npz_path", "C:/Users/matth/Data/nfbs_dataset_preprocessed/embeddings",
-                "--prefix", "nfbs",
-                "--label_id", "1",
-                "--img_name_suffix", "''"
+                "-i",
+                "C:/Users/matth/Data/brainseg/nfbs_dataset_preprocessed",
+                "-o",
+                "C:/Users/matth/Data/brainseg/nfbs_dataset_preprocessed/embeddings",
+                "-p",
+                "nfbs"
             ]
         }
     ]

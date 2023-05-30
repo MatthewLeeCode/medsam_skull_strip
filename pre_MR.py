@@ -52,56 +52,70 @@ train_names = sorted(names[:int(len(names)*0.8)])
 test_names = sorted(names[int(len(names)*0.8):])
 
 # def preprocessing function
+
+# This function preprocesses non-CT images by loading the ground truth and image data, resizing them, and applying a model if provided.
+# It takes in the ground truth path, nii path, ground truth name, image name, label id, image size, sam model, and device as inputs.
 def preprocess_nonct(gt_path, nii_path, gt_name, image_name, label_id, image_size, sam_model, device):
+    # Load the ground truth image and convert it to binary
     gt_sitk = radvis.load_image(join(gt_path, gt_name))
     gt_data = gt_sitk.image_data
     gt_data = np.uint8(gt_data==label_id)
     
+    # If the ground truth has more than 1000 pixels, preprocess the image
     if np.sum(gt_data)>1000:
         imgs = []
         gts =  []
         img_embeddings = []
+        
+        # Check that the ground truth is binary
         assert np.max(gt_data)==1 and np.unique(gt_data).shape[0]==2, 'ground truth should be binary'
+        
+        # Load the image data and preprocess it
         img_sitk = sitk.ReadImage(join(nii_path, image_name))
         image_data = sitk.GetArrayFromImage(img_sitk)
-        # nii preprocess start
         lower_bound, upper_bound = np.percentile(image_data, 0.5), np.percentile(image_data, 99.5)
         image_data_pre = np.clip(image_data, lower_bound, upper_bound)
         image_data_pre = (image_data_pre - np.min(image_data_pre))/(np.max(image_data_pre)-np.min(image_data_pre))*255.0
         image_data_pre[image_data==0] = 0
         image_data_pre = np.uint8(image_data_pre)
         
+        # Get the z index of the ground truth and resize the slices
         z_index, _, _ = np.where(gt_data>0)
         z_min, z_max = np.min(z_index), np.max(z_index)
-        
+        # Go through all the indices between z_min and z_max
         for i in range(z_min, z_max):
             gt_slice_i = gt_data[i,:,:]
             gt_slice_i = transform.resize(gt_slice_i, (image_size, image_size), order=0, preserve_range=True, mode='constant', anti_aliasing=True)
+            
+            # If the ground truth has more than 100 pixels, resize the image slice and convert it to three channels
             if np.sum(gt_slice_i)>100:
-                # resize img_slice_i to 256x256
                 img_slice_i = transform.resize(image_data_pre[i,:,:], (image_size, image_size), order=3, preserve_range=True, mode='constant', anti_aliasing=True)
-                # convert to three channels
                 img_slice_i = np.uint8(np.repeat(img_slice_i[:,:,None], 3, axis=-1))
+                
+                # Check that the image is 3 channels and has the same size as the ground truth
                 assert len(img_slice_i.shape)==3 and img_slice_i.shape[2]==3, 'image should be 3 channels'
                 assert img_slice_i.shape[0]==gt_slice_i.shape[0] and img_slice_i.shape[1]==gt_slice_i.shape[1], 'image and ground truth should have the same size'
+                
+                # Append the image slice and ground truth slice to their respective lists
                 imgs.append(img_slice_i)
                 assert np.sum(gt_slice_i)>100, 'ground truth should have more than 100 pixels'
                 gts.append(gt_slice_i)
+                
+                # If a sam model is provided, apply it to the image slice and append the embedding to the list
                 if sam_model is not None:
                     sam_transform = ResizeLongestSide(sam_model.image_encoder.img_size)
                     resize_img = sam_transform.apply_image(img_slice_i)
-                    # resized_shapes.append(resize_img.shape[:2])
                     resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(device)
-                    # model input: (1, 3, 1024, 1024)
-                    input_image = sam_model.preprocess(resize_img_tensor[None,:,:,:]) # (1, 3, 1024, 1024)
+                    input_image = sam_model.preprocess(resize_img_tensor[None,:,:,:])
                     assert input_image.shape == (1, 3, sam_model.image_encoder.img_size, sam_model.image_encoder.img_size), 'input image should be resized to 1024*1024'
-                    # input_imgs.append(input_image.cpu().numpy()[0])
                     with torch.no_grad():
                         embedding = sam_model.image_encoder(input_image)
                         img_embeddings.append(embedding.cpu().numpy()[0])
-
+    
+    # If a sam model is provided, return the image slices, ground truth slices, and embeddings
     if sam_model is not None:
         return imgs, gts, img_embeddings
+    # Otherwise, return the image slices and ground truth slices
     else:
         return imgs, gts
 
