@@ -205,6 +205,8 @@ def main():
             images = np.stack(images, axis=0) # (n, 256, 256, 3)
             groundtruths = np.stack(groundtruths, axis=0) # (n, 256, 256)
             embeddings = np.stack(embeddings, axis=0) # (n, 1, 256, 64, 64)
+            # Convert to float16 to save space
+            embeddings = embeddings.astype(np.float16)
             np.savez_compressed(join(args.npz_path, args.prefix + '_' + image_id + '.npz'), imgs=images, gts=groundtruths, img_embeddings=embeddings)
             
             # save an example image for sanity check
