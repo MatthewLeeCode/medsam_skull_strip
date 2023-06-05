@@ -23,6 +23,7 @@ def define_parser() -> argparse.ArgumentParser:
     parser.add_argument('-i', '--inp_path', type=str, default='data/', help='path to the folders "images" and "masks"')
     parser.add_argument('-o', '--npz_path', type=str, default='data/', help='path to save the npz files')
     parser.add_argument('-p', '--prefix', type=str, help='Prefix to save')
+    parser.add_argument('-a', '--axis', type=int, default=0, help='Plane to run embeddings on')
 
     parser.add_argument('--filetype', type=str, default='nii.gz', help='filetype of the images')
     parser.add_argument('--image_size', type=int, default=256, help='image size')
@@ -84,17 +85,18 @@ def load_image_and_groundtruth(file_path: str, image_id: str, label_id: int, fil
         return None, None
 
 
-def get_z_range(mask: rv.RadImage) -> Tuple[int, int]:
-    """ Retrieves the minimum and maximum z indices that contain the mask
+def get_range(mask: rv.RadImage, axis: int) -> Tuple[int, int]:
+    """ Retrieves the minimum and maximum indices along a specific axis that contain the mask
 
     :param mask: the mask of binary 0-1 values
+    :param axis: the axis along which to find the indices
 
-    :return: the minimum and maximum z indices
+    :return: the minimum and maximum indices along the axis
     """
-    z_index = np.where(mask.image_data > 0)[0]
-    z_min = int(np.min(z_index))
-    z_max = int(np.max(z_index))
-    return z_min, z_max
+    index = np.where(mask.image_data > 0)[axis]
+    min_ind = int(np.min(index))
+    max_ind = int(np.max(index))
+    return min_ind, max_ind
 
 
 def run_sam_model(sam_model: Sam, device: str, img_slice: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -150,7 +152,7 @@ def main():
         image, ground_truth = preprocess_image(image, ground_truth)
 
         # Identify the min_z and max_z indices where the mask is present
-        min_z, max_z = get_z_range(ground_truth)
+        min_ind, max_ind = get_range(ground_truth, args.axis)
         
         # Run the slices through the encoder
         embeddings = []
@@ -158,8 +160,8 @@ def main():
         groundtruths = []
 
         ground_truth_slice = np.array([])
-        for i in range(min_z, max_z):
-            ground_truth_slice:np.ndarray = ground_truth.image_data[i]
+        for i in range(min_ind, max_ind):
+            ground_truth_slice:np.ndarray = np.take(ground_truth.image_data, i, axis=args.axis)
             
             ground_truth_slice = transform.resize(
                 ground_truth_slice, 
@@ -175,7 +177,7 @@ def main():
             if np.sum(ground_truth_slice) <= 100:
                 continue
 
-            image_slice = image.image_data[i]
+            image_slice = np.take(image.image_data, i, axis=args.axis)
             image_slice = transform.resize(
                 image_slice, 
                 (args.image_size, args.image_size), 
