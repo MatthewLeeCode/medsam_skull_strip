@@ -1,6 +1,7 @@
 import os
-import shutil
 import argparse
+import nibabel as nib
+from nibabel import as_closest_canonical
 
 def define_parser() -> argparse.ArgumentParser:
     """ Defines the parser for the script """
@@ -25,12 +26,17 @@ def organize_images(args):
             if file.endswith(args.filetype):
                 id = file.split('-')[1].split("_")[0][1:]
                 source_file_path = os.path.join(root, file)
+                # Load the NIfTI image and reorient to closest canonical (RAS) orientation
+                nii_img = nib.load(source_file_path)
+                nii_img_canonical = as_closest_canonical(nii_img)
                 if '_brainmask' in file:
                     target_file_path = os.path.join(mask_dir, id + '.' + args.filetype)
-                    shutil.copy2(source_file_path, target_file_path)
+                    # Save the reoriented image
+                    nii_img_canonical.to_filename(target_file_path)
                 elif '_brain' not in file:
                     target_file_path = os.path.join(image_dir, id + '.' + args.filetype)
-                    shutil.copy2(source_file_path, target_file_path)
+                    # Save the reoriented image
+                    nii_img_canonical.to_filename(target_file_path)
 
 def main():
     parser = define_parser()

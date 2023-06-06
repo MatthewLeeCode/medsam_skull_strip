@@ -135,6 +135,9 @@ def main():
     parser = define_parser()
     args = parser.parse_args()
 
+    # Make directory for saving
+    os.makedirs(join(args.npz_path, args.prefix), exist_ok=True)
+
     # Load SAM model
     sam_model = sam_model_registry[args.model_type](checkpoint=args.checkpoint).to(args.device)
 
@@ -144,7 +147,7 @@ def main():
     for image_id in tqdm(image_ids):
         # Load the image and ground truth
         image, ground_truth = load_image_and_groundtruth(args.inp_path, image_id, args.label_id, args.filetype)
-        
+
         if image is None or ground_truth is None:
             continue
 
@@ -209,7 +212,7 @@ def main():
             embeddings = np.stack(embeddings, axis=0) # (n, 1, 256, 64, 64)
             # Convert to float16 to save space
             embeddings = embeddings.astype(np.float16)
-            np.savez_compressed(join(args.npz_path, args.prefix + '_' + image_id + '.npz'), imgs=images, gts=groundtruths, img_embeddings=embeddings)
+            np.savez_compressed(join(args.npz_path, args.prefix, image_id + '.npz'), imgs=images, gts=groundtruths, img_embeddings=embeddings)
             
             # save an example image for sanity check
             idx = np.random.randint(0, images.shape[0])
@@ -217,7 +220,7 @@ def main():
             gt_idx = groundtruths[idx,:,:]
             bd = segmentation.find_boundaries(gt_idx, mode='inner')
             img_idx[bd, :] = [255, 0, 0]
-            io.imsave(join(args.npz_path, args.prefix + '_' + image_id + '.png'), img_idx, check_contrast=False)
+            io.imsave(join(args.npz_path, args.prefix, image_id + '.png'), img_idx, check_contrast=False)
 
 
 if __name__ == "__main__":
