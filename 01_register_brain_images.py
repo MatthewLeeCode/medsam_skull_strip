@@ -20,7 +20,6 @@ def define_parser() -> argparse.ArgumentParser:
     return parser
 
 
-
 def convert_image_to_mni(image_path:str, out_location:str):
     # File paths
     standard_img = fsl.Info.standard_image('MNI152_T1_2mm_brain.nii.gz')
