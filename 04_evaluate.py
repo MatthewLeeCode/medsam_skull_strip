@@ -2,9 +2,13 @@
 Run the model on the test set and save the results
 """
 import argparse
+import os
+from typing import Tuple
 import pandas as pd
+from tqdm import tqdm
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
+from segment_anything.modeling import Sam
 from os.path import join
 import numpy as np
 import torch
@@ -46,7 +50,7 @@ def load_embedding_and_groundtruth(image_location: str, axis: int, image_id: str
     return embedding, image, groundtruth
 
 
-def create_bounding_box(groundtruth: np.ndarray, index: int, buffer: int = 1) -> np.ndarray:
+def create_bounding_box(groundtruth: np.ndarray, index: int, image_size: tuple, device:str, buffer: int = 1) -> np.ndarray:
     """ Creates the x_min, x_max, y_min, y_max of the bounding box at the specified index
 
     Args:
@@ -82,6 +86,13 @@ def create_bounding_box(groundtruth: np.ndarray, index: int, buffer: int = 1) ->
     # Create bounding box
     bbox = np.array([x_min, y_min, x_max, y_max])
 
+    # Check if bounding box is valid
+    sam_trans = ResizeLongestSide(image_size)
+    box = sam_trans.apply_boxes(bbox, (groundtruth.shape[-2], groundtruth.shape[-1]))
+    box_torch = torch.as_tensor(box, dtype=torch.float, device=device)
+    if len(box_torch.shape) == 2:
+        box_torch = box_torch[:, None, :]
+
     return bbox
 
 
@@ -103,40 +114,57 @@ def load_model(model_type:str, model_location: str, model_version: str, axis: in
     return model
 
 
-def main() -> None:
-    parser = create_parser()
-    args = parser.parse_args()
-    
-    # Headings: image_id, image_location, mask_location, dataset_group, random_state
-    metadata = pd.read_csv(args.metadata)
+def save_output(output: torch.Tensor, medsam_seg_prob: torch.Tensor, image_id: str, axis: int, save_location: str) -> None:
+    """ Saves the output of the model
 
-    # Get all test image ids
-    test_ids = metadata[metadata['dataset_group'] == 'test']['image_id'].values.tolist()
-    
-    embedding, image, groundtruth = load_embedding_and_groundtruth(image_location="data/medsam/embeddings", axis=args.axis, image_id=test_ids[0])
+    Args:
+        output (torch.Tensor): Output of model
+        medsam_seg_prob (torch.Tensor): Segmentation probability
+        image_id (str): Image id
+        axis (int): Axis to perform segmentation on
+        save_location (str): Location to save segmentation results and metadata
+    """
+    save_location_folder = join(save_location, f"axis_{axis}")
+    if not os.path.exists(save_location_folder):
+        os.makedirs(save_location_folder)
 
-    print(embedding.shape, image.shape, groundtruth.shape)
+    masks = output[0].cpu().numpy()
+    mask_probabilities = output[1].cpu().numpy()
+    medsam_seg_prob = medsam_seg_prob.cpu().numpy()
 
-    bounding_box = create_bounding_box(groundtruth, index=10)
+    # Save output
+    np.savez_compressed(
+        join(save_location_folder, f"{image_id}.npz"),
+        masks=masks,
+        mask_probabilities=mask_probabilities,
+        mask_value_probabilities=medsam_seg_prob,
+    )
 
-    model = load_model(model_type=args.sam_model_type, model_location=args.model_location, model_version=args.model_version, axis=args.axis, device=args.device)
 
-    sam_trans = ResizeLongestSide(model.image_encoder.img_size)
-    box = sam_trans.apply_boxes(bounding_box, (groundtruth.shape[-2], groundtruth.shape[-1]))
-    box_torch = torch.as_tensor(box, dtype=torch.float, device=args.device)
-    if len(box_torch.shape) == 2:
-        box_torch = box_torch[:, None, :]
+def run_model(model: Sam, embedding: np.ndarray, groundtruth: np.ndarray, box: np.ndarray, device: str) -> Tuple[torch.Tensor, torch.Tensor]:
+    """ Runs the model on the embedding
 
+    Args:
+        model (Sam): Model
+        embedding (np.ndarray): Embedding of image
+        groundtruth (np.ndarray): Groundtruth of image
+        box (np.ndarray): Bounding box
+        device (str): Device to run model on
+
+    Returns:
+        torch.Tensor: Output of model
+        torch.Tensor: Segmentation probability
+    """
     # Generate prompt embeddings
     with torch.no_grad():
         sparse_embeddings, dense_embeddings = model.prompt_encoder(
             points=None,
-            boxes=box_torch,
+            boxes=box,
             masks=None,
         )
 
-        embedding = torch.tensor(embedding, dtype=torch.float32, device=args.device)
-        groundtruth = torch.tensor(groundtruth, dtype=torch.float32, device=args.device)
+        embedding = torch.tensor(embedding, dtype=torch.float32, device=device)
+        groundtruth = torch.tensor(groundtruth, dtype=torch.float32, device=device)
 
         # Run the embeddings through the mask_decoder part of the model
         output = model.mask_decoder(
@@ -149,10 +177,40 @@ def main() -> None:
 
         medsam_seg_prob = torch.sigmoid(output[0])
 
-        print(len(output))
-        for i in range(len(output)):
-            print(output[i].shape)
+    return output, medsam_seg_prob
 
+
+def main() -> None:
+    parser = create_parser()
+    args = parser.parse_args()
+    
+    # Headings: image_id, image_location, mask_location, dataset_group, random_state
+    metadata = pd.read_csv(args.metadata)
+
+    # Get all test image ids
+    test_ids = metadata[metadata['dataset_group'] == 'test']['image_id'].values.tolist()
+
+    model = load_model(model_type=args.sam_model_type, model_location=args.model_location, model_version=args.model_version, axis=args.axis, device=args.device)
+
+
+    for image_id in tqdm(test_ids):
+        # Load image, embedding and groundtruth
+        embedding, image, groundtruth = load_embedding_and_groundtruth(image_location="data/medsam/embeddings", axis=args.axis, image_id=image_id)
+
+        # Create bounding box
+        bboxes = []
+        for index in range(groundtruth.shape[0]):
+            bounding_box = create_bounding_box(groundtruth, index=index, device=args.device, image_size=model.image_encoder.img_size)
+            bboxes.append(bounding_box)
+        bboxes = np.array(bboxes)
+        bboxes = torch.as_tensor(bboxes, dtype=torch.float, device=args.device)
+
+        # Run model
+        output, medsam_seg_prob = run_model(model, embedding, groundtruth, bboxes, args.device)
+
+        # Save output
+        save_output(output, medsam_seg_prob, image_id, args.axis, args.save_location)
+        
 
 if __name__ == "__main__":
     main()
