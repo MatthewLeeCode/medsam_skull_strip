@@ -68,38 +68,6 @@ def convert_to_mni(image_path:str, mask_path:str, out_location:str):
     convert_mask_to_mni(mask_path, out_location, transform_mat)
 
 
-def convert_back_to_original(mni_image:str, mni_mask:str, original_image:str, out_location:str):
-    # File paths
-    transform_mat = join(out_location, "transform_mat.mat")
-    inverse_transform_mat = join(out_location, "inverse_transform_mat.mat")
-
-    # Compute inverse of the transformation matrix
-    convertxfm = ConvertXFM()
-    convertxfm.inputs.in_file = transform_mat
-    convertxfm.inputs.out_file = inverse_transform_mat
-    convertxfm.inputs.inverse = True
-    convertxfm.run()
-
-    # Apply inverse transformation to image
-    flirt_img = FLIRT()
-    flirt_img.inputs.in_file = mni_image
-    flirt_img.inputs.reference = original_image
-    flirt_img.inputs.out_file = join(out_location, "images", f"{mni_image.split('/')[-1].split('.')[0]}_original.nii.gz")
-    flirt_img.inputs.apply_xfm = True
-    flirt_img.inputs.in_matrix_file = inverse_transform_mat
-    flirt_img.run()
-
-    # Apply inverse transformation to mask
-    flirt_mask = FLIRT()
-    flirt_mask.inputs.in_file = mni_mask
-    flirt_mask.inputs.reference = original_image
-    flirt_mask.inputs.out_file = join(out_location, "masks", f"{mni_mask.split('/')[-1].split('.')[0]}_original.nii.gz")
-    flirt_mask.inputs.apply_xfm = True
-    flirt_mask.inputs.in_matrix_file = inverse_transform_mat
-    flirt_mask.inputs.interp = 'nearestneighbour'
-    flirt_mask.run()
-
-
 def load_images(id:str, path:str) -> rv.RadImage:
     """
     Gets the image and the mask from the images and masks folder respectively. 
