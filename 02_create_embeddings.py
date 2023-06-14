@@ -156,6 +156,9 @@ def main():
 
         # Identify the min_z and max_z indices where the mask is present
         min_ind, max_ind = get_range(ground_truth, args.axis)
+
+        # Save the min and max
+        np.savez_compressed(join(args.npz_path, args.prefix, image_id + '_minmax.npz'), min_ind=min_ind, max_ind=max_ind)
         
         # Run the slices through the encoder
         embeddings = []
@@ -204,7 +207,7 @@ def main():
             # Run the model
             embedding = run_sam_model(sam_model, args.device, image_slice)
             embeddings.append(embedding)
-    
+
         # stack the list to array
         if len(images) > 1:
             images = np.stack(images, axis=0) # (n, 256, 256, 3)
