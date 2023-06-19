@@ -39,6 +39,35 @@ def convert_image_to_mni(image_path:str, out_location:str):
     return transform_mat
 
 
+def convert_mask_to_original_space(mask_path:str, out_location:str, transform_mat:str):
+    # File paths
+    original_mask = mask_path  # Use original mask as reference 
+
+    # Get the ID of the mask from the path
+    mask_id = mask_path.split('/')[-1].split('.')[0]
+    
+    # Create output file path
+    out_file = join(out_location, "masks", f"{mask_id}_original.nii.gz")
+    
+    # Get inverse of the transformation matrix
+    invt = ConvertXFM()
+    invt.inputs.in_file = transform_mat
+    invt.inputs.out_file = join(out_location, "transforms", f"{mask_id}_inverse.mat")
+    invt.run()
+
+    # Register mask back to original space using inverse transformation matrix
+    flirt_mask = FLIRT()
+    flirt_mask.inputs.in_file = join(out_location, "masks", f"{mask_id}_mni.nii.gz")
+    flirt_mask.inputs.reference = original_mask
+    flirt_mask.inputs.out_file = out_file
+    flirt_mask.inputs.apply_xfm = True
+    flirt_mask.inputs.in_matrix_file = invt.inputs.out_file
+    flirt_mask.inputs.interp = 'nearestneighbour'
+    flirt_mask.run()
+
+    return out_file
+
+
 def convert_mask_to_mni(mask_path:str, out_location:str, transform_mat:str):
     # File paths
     standard_img = fsl.Info.standard_image('MNI152_T1_2mm_brain.nii.gz')

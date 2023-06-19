@@ -25,9 +25,9 @@ AXIS = args.axis
 DATA_LOCATION = "data/medsam"
 IMAGES_FOLDER = join(DATA_LOCATION, "images")
 MASKS_FOLDER = join(DATA_LOCATION, "masks")
-EMBEDDINGS_FOLDER = join(DATA_LOCATION, "embeddings", f"axis_{AXIS}")
+EMBEDDINGS_FOLDER = join(DATA_LOCATION, f"axis_{AXIS}")
 DATA_SPLIT = 0.2
-MODEL_VERSION = "0.0.1"
+MODEL_VERSION = "0.0.2"
 MODEL_TASK = "brainstrip"
 MODEL_SAVE_PATH = f"models/{MODEL_TASK}/{MODEL_VERSION}/{AXIS}"
 
@@ -35,7 +35,7 @@ MODEL_SAVE_PATH = f"models/{MODEL_TASK}/{MODEL_VERSION}/{AXIS}"
 os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
 
 
-embedding_ids = [i for i in os.listdir(EMBEDDINGS_FOLDER) if i.endswith(".npz")]
+embedding_ids = [i for i in os.listdir(EMBEDDINGS_FOLDER) if i.endswith(".npz") and not i.find("minmax") > -1]
 # Train test split
 train_ids, test_ids = train_test_split(embedding_ids, test_size=DATA_SPLIT, random_state=2023)
 train_filenames = [join(EMBEDDINGS_FOLDER, i) for i in train_ids]
@@ -107,7 +107,7 @@ seg_loss = monai.losses.DiceCELoss(sigmoid=True, squared_pred=True, reduction='m
 
 from tqdm import tqdm
 
-num_epochs = 100
+num_epochs = 1000
 losses = []
 best_loss = 1e10
 train_dataset = NpzDataset(train_filenames)

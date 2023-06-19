@@ -3,6 +3,10 @@ import radvis as rv
 import numpy as np
 from os.path import join
 from utils.SurfaceDice import compute_dice_coefficient
+import nibabel as nib
+import os
+import pandas as pd
+from tqdm import tqdm
 
 
 def align_segmentation_voxels(axis_0_seg: np.ndarray, axis_1_seg: np.ndarray, axis_2_seg: np.ndarray) -> np.ndarray:
@@ -57,16 +61,15 @@ def add_padding(image: np.ndarray, min_index: int, original_shape: Tuple[int, in
 
     return padded_image
 
-def main():
-    results_location = "data/medsam/embeddings/results"
-    image_location = "data/medsam/embeddings"
 
-    image_id = "00064081"
-    suffix = "_mni"
-
+def get_dice_scores(image_id: str, results_location: str, image_location: str, suffix: str = "") -> dict:
+    """
+    Calculates the dice scores for each axis
+    """
     segmentation_probs = []
     segmentation_masks = []
     groundtruth_masks = []
+    results = {} 
     for axis in [0,1,2]:
         # Load the result
         result = np.load(join(results_location, f"axis_{axis}", f"{image_id}{suffix}.npz"))
@@ -103,24 +106,18 @@ def main():
         # Calculates which pixels of the groundtruth are wrong
         xor_gt_mask = np.logical_and(xor_mask, groundtruth)
 
-        slicer_med_diff = rv.RadSlicer(r_image, title="MEDSAM Difference")
-        slicer_med_diff.add_mask(xor_seg_mask, color="green", alpha=0.5)
+        results[f"axis_{axis}_diff"] = np.sum(xor_mask)
+        results[f"axis_{axis}_gt_diff"] = np.sum(xor_gt_mask)
+        results[f"axis_{axis}_seg_diff"] = np.sum(xor_seg_mask)
 
-        slicer_gt_diff = rv.RadSlicer(r_image, title="Groundtruth Difference")
-        slicer_gt_diff.add_mask(xor_gt_mask, color="red", alpha=0.5)
-
-        # Animates the difference 
-        #slicer_medsam.save_animation(f"medsam_{axis}.gif", fps=10)
-        #slicer_gt.save_animation(f"gt_{axis}.gif", fps=10)
-        #slicer_med_diff.save_animation(f"medsam_diff_{axis}.gif", fps=10)
-        #slicer_gt_diff.save_animation(f"gt_diff_{axis}.gif", fps=10)
-
+        mask_probabilities = mask_probabilities.reshape((mask_probabilities.shape[0], 1, 1))
+        mask_value_probabilities = mask_probabilities * mask_value_probabilities
         segmentation_masks.append(segmentation)
         segmentation_probs.append(mask_value_probabilities)
         groundtruth_masks.append(groundtruth)
 
         dice = compute_dice_coefficient(segmentation, groundtruth)
-        print(f"Dice coefficient for axis {axis}: {dice}")
+        results["axis_{}".format(axis)] = dice
 
     # Loads the min and max index for each axis
     minmax_0 = np.load(join(image_location, f"axis_0", f"{image_id}{suffix}_minmax.npz"))
@@ -154,30 +151,34 @@ def main():
     # We want to add up the channels and then convert the values from 0 - 3 to 0 - 1
     probabilities_ensemble = np.sum(probabilities_ensemble, axis=-1) / 3
 
-    thresholds = np.arange(0.1, 1, 0.1)
-    dice_scores = []
-    for threshold in thresholds:
+    for threshold in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
         probs_threshold = probabilities_ensemble > threshold
         dice = compute_dice_coefficient(probs_threshold, groundtruth)
-        dice_scores.append(dice)
-        print(f"Dice coefficient for threshold {threshold}: {dice}")
+        results[f"threshold_{threshold}"] = dice
+        nib.save(nib.Nifti1Image(probs_threshold.astype(np.uint8), np.eye(4)), join(results_location, f"thresholds", f"{image_id}_threshold_{threshold}.nii.gz"))
+    
+    # Save the segmentation_ensemble channels as a nifti file
+    nib.save(nib.Nifti1Image(segmentation_ensemble[:, :, :, 0].astype(np.uint8), np.eye(4)), join(results_location, f"axis_0", f"{image_id}_segmentation.nii.gz"))
+    nib.save(nib.Nifti1Image(segmentation_ensemble[:, :, :, 1].astype(np.uint8), np.eye(4)), join(results_location, f"axis_1", f"{image_id}_segmentation.nii.gz"))
+    nib.save(nib.Nifti1Image(segmentation_ensemble[:, :, :, 2].astype(np.uint8), np.eye(4)), join(results_location, f"axis_2", f"{image_id}_segmentation.nii.gz"))
+    return results 
 
-    probs_thresh = probabilities_ensemble > 0.5
+def main():
+    version = "0.0.2"
+    results_location = f"data/medsam/{version}/results"
+    image_location = f"data/medsam/"
 
-    slicer_thresh = rv.RadSlicer(r_image, title="Threshold")
-    slicer_thresh.add_mask(probs_thresh, color="magenta", alpha=0.5)
+    image_filenames = os.listdir(join(results_location, "axis_0"))
+    image_ids = list(set([filename.split("_")[0] for filename in image_filenames]))
+    suffix = "_mni"
 
-    slicer_ch0 = rv.RadSlicer(r_image, title="Channel 0")
-    slicer_ch0.add_mask(segmentation_ensemble[:, :, :, 0], color="red", alpha=0.5)
+    results = []
+    for image_id in tqdm(image_ids):
+        row = get_dice_scores(image_id, results_location, image_location, suffix)
+        results.append(row)
 
-    slicer_ch1 = rv.RadSlicer(r_image, title="Channel 1")
-    slicer_ch1.add_mask(segmentation_ensemble[:, :, :, 1], color="green", alpha=0.5)
-
-    slicer_ch2 = rv.RadSlicer(r_image, title="Channel 2")
-    slicer_ch2.add_mask(segmentation_ensemble[:, :, :, 2], color="blue", alpha=0.5)
-
-    slicer_group = rv.RadSlicerGroup([slicer_thresh, slicer_ch0, slicer_ch1, slicer_ch2], cols=4, rows=1)
-    slicer_group.display()
+    results = pd.DataFrame(results)
+    results.to_csv(join(results_location, "results.csv"))
     # Calculate the amount of voxels which have all 3 segmentation channels as '1'
     # This is the amount of voxels which are segmented correctly by all 3 axes
     '''

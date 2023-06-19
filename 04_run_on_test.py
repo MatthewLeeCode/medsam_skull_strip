@@ -21,8 +21,9 @@ def create_parser() -> None:
     parser.add_argument("--model_location", type=str, default="models/brainstrip", help="Location of model")
     parser.add_argument("--sam_model_type", type=str, default="vit_b", help="SAM model type")
     parser.add_argument("--axis", type=int, default=0, help="Axis to perform segmentation on")
-    parser.add_argument("--save_location", type=str, default="data/medsam/embeddings/results", help="Location to save segmentation results and metadata")
+    parser.add_argument("--save_location", type=str, default="data/medsam/", help="Location to save segmentation results and metadata")
     parser.add_argument("--device", type=str, default="cuda", help="Device to run model on")
+    parser.add_argument("--data_location", type=str, default="data/medsam/", help="Location of data")
     return parser
 
 
@@ -190,7 +191,7 @@ def main() -> None:
 
     for image_id in tqdm(test_ids):
         # Load image, embedding and groundtruth
-        embedding, image, groundtruth = load_embedding_and_groundtruth(image_location="data/medsam/embeddings", axis=args.axis, image_id=image_id)
+        embedding, image, groundtruth = load_embedding_and_groundtruth(image_location=args.data_location, axis=args.axis, image_id=image_id)
 
         # Create bounding box
         bboxes = []
@@ -208,8 +209,8 @@ def main() -> None:
         output, segment, medsam_seg_prob = run_model(model, embedding, groundtruth, box_torch, args.device)
 
         # Save output
-        save_output(output, segment, medsam_seg_prob, image_id, args.axis, args.save_location)
-        
+        save_output(output, segment, medsam_seg_prob, image_id, args.axis, join(args.save_location, args.model_version, "results"))
+         
 
 if __name__ == "__main__":
     main()
