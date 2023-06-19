@@ -11,17 +11,23 @@ from utils.SurfaceDice import compute_dice_coefficient
 from sklearn.model_selection import train_test_split
 import radvis as rv
 import monai
+import argparse
 
 torch.manual_seed(2023)
 np.random.seed(2023)
 
-AXIS = 0
+# Create parser for AXIS
+parser = argparse.ArgumentParser()
+parser.add_argument("--axis", type=int, default=0, help="Axis to segment")
+args = parser.parse_args()
+
+AXIS = args.axis
 DATA_LOCATION = "data/medsam"
 IMAGES_FOLDER = join(DATA_LOCATION, "images")
 MASKS_FOLDER = join(DATA_LOCATION, "masks")
-EMBEDDINGS_FOLDER = join(DATA_LOCATION, "embeddings", f"axis_{AXIS}")
+EMBEDDINGS_FOLDER = join(DATA_LOCATION, f"axis_{AXIS}")
 DATA_SPLIT = 0.2
-MODEL_VERSION = "0.0.1"
+MODEL_VERSION = "0.0.2"
 MODEL_TASK = "brainstrip"
 MODEL_SAVE_PATH = f"models/{MODEL_TASK}/{MODEL_VERSION}/{AXIS}"
 
@@ -29,7 +35,7 @@ MODEL_SAVE_PATH = f"models/{MODEL_TASK}/{MODEL_VERSION}/{AXIS}"
 os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
 
 
-embedding_ids = [i for i in os.listdir(EMBEDDINGS_FOLDER) if i.endswith(".npz")]
+embedding_ids = [i for i in os.listdir(EMBEDDINGS_FOLDER) if i.endswith(".npz") and not i.find("minmax") > -1]
 # Train test split
 train_ids, test_ids = train_test_split(embedding_ids, test_size=DATA_SPLIT, random_state=2023)
 train_filenames = [join(EMBEDDINGS_FOLDER, i) for i in train_ids]
@@ -79,14 +85,14 @@ class NpzDataset(Dataset):
         # convert img embedding, mask, bounding box to torch tensor
         return (torch.tensor(img_embedding).float(), torch.tensor(ori_gt[None, :,:]).long(), torch.tensor(bboxes).float())
 
-
+'''
 demo_dataset = NpzDataset(train_filenames)
-demo_dataloader = DataLoader(demo_dataset, batch_size=8, shuffle=False)
+demo_dataloader = DataLoader(demo_dataset, batch_size=8, shuffle=True)
 for img_embed, gt2D, bboxes in demo_dataloader:
     # img_embed: (B, 256, 64, 64), gt2D: (B, 1, 256, 256), bboxes: (B, 4)
     print(f"{img_embed.shape=}, {gt2D.shape=}, {bboxes.shape=}")
     break
-
+'''
 # prepare SAM model
 model_type = 'vit_b'
 checkpoint = 'work_dir/MedSAM/medsam_20230423_vit_b_0.0.1.pth'
@@ -101,11 +107,11 @@ seg_loss = monai.losses.DiceCELoss(sigmoid=True, squared_pred=True, reduction='m
 
 from tqdm import tqdm
 
-num_epochs = 100
+num_epochs = 1000
 losses = []
 best_loss = 1e10
 train_dataset = NpzDataset(train_filenames)
-train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=False)
+train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}")
     epoch_loss = 0
